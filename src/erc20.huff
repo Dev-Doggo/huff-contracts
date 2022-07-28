@@ -1,0 +1,316 @@
+// Imports
+
+#include "./utils/safe-math.huff" // SAFE_ADD SAFE_SUB
+#include "./utils/address.huff"  // REVERT_IF_ADDRESS_INVALID
+#include "./utils/mappings.huff"  // GET_MAPPING_SLOT GET_MAPPING_VALUE SET_MAPPING_VALUE
+
+// Interface
+
+#define function decimals() view returns(uint8)
+#define function totalSupply() view returns(uint256)
+#define function balanceOf(address) view returns (uint256)
+#define function transfer(address, uint256) nonpayable returns (bool)
+#define function transferFrom(address, address, uint256) nonpayable returns (bool)
+#define function approve(address, uint256) nonpayable returns (bool)
+#define function allowance(address, address) view returns (uint256)
+#define function mint(address, uint256) nonpayable returns()
+#define function name() view returns(string)
+#define function symbol() view returns(string)
+#define event Transfer(address indexed, address indexed, uint256)
+#define event Approval(address indexed, address indexed, uint256)
+
+// Constants
+
+#define constant NAME = 0x5465737400000000000000000000000000000000000000000000000000000000
+#define constant NAME_LEN = 0x04
+
+#define constant SYMBOL = 0x5453540000000000000000000000000000000000000000000000000000000000
+#define constant SYMBOL_LEN = 0x03
+
+// Storage
+
+#define constant TOTAL_SUPPLY = FREE_STORAGE_POINTER()
+#define constant BALANCES_MAPPING = FREE_STORAGE_POINTER()
+#define constant ALLOWANCE_MAPPING = FREE_STORAGE_POINTER()
+
+// Helper functions
+
+// stack: [account]
+#define macro BALANCE_OF(free_mem_ptr) = takes(1) returns(1) {
+    [BALANCES_MAPPING] GET_MAPPING_VALUE(<free_mem_ptr>) // [balance]
+}
+
+// stack: [amount, account]
+#define macro ADD_BALANCE(free_mem_ptr) = takes(2) returns(0) {
+    dup2 BALANCE_OF(<free_mem_ptr>) // [balance, amount, account]
+    SAFE_ADD()                      // [new_balance, account]
+    swap1                           // [account, new_balance]
+    [BALANCES_MAPPING] SET_MAPPING_VALUE(<free_mem_ptr>) // []
+}
+
+// stack: [amount, account]
+#define macro SUB_BALANCE(free_mem_ptr) = takes(2) returns(0) {
+    dup2 BALANCE_OF(<free_mem_ptr>) // [balance, amount, account]
+    SAFE_SUB()                      // [new_balance, account]
+    swap1                           // [account, new_balance]
+    [BALANCES_MAPPING] SET_MAPPING_VALUE(<free_mem_ptr>) // []
+}
+
+// stack: [amount, from, to]
+#define macro TRANSFER(free_mem_ptr) = takes(3) returns(0) {
+    dup3 dup3 dup3              // [amount, from, to, amount, from, to]
+    swap1                       // [from, amount, to, amount, from, to]
+    dup2                        // [amount, from, amount, to, amount, from, to]
+    SUB_BALANCE(<free_mem_ptr>) // [amount, to, amount, from, to]
+    ADD_BALANCE(<free_mem_ptr>) // [amount, from, to]
+    <free_mem_ptr> mstore       // [from, to]
+    __EVENT_HASH(Transfer)      // [event_sig, from, to]
+    0x20 <free_mem_ptr>         // [free_mem_ptr, 0x20, event_sig, from, to]
+    log3                        // []
+}
+
+// stack: [owner, spender]
+#define macro ALLOWANCE_SLOT(free_mem_ptr) = takes(2) returns(1) {
+    [ALLOWANCE_MAPPING] GET_MAPPING_SLOT(<free_mem_ptr>) // [owner_allowance_slot, spender]
+    GET_MAPPING_SLOT(<free_mem_ptr>)                     // [owner_spender_allowance_slot]
+}
+
+// stack: [owner, spender]
+#define macro ALLOWANCE(free_mem_ptr) = takes(2) returns(1) {
+    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot]
+    sload            // [allowance]
+}
+
+// stack: [owner, spender, amount]
+#define macro SET_ALLOWANCE(free_mem_ptr) = takes(3) returns(0) {
+    dup3 dup3 dup3                 // [owner, spender, amount, owner, spender, amount]
+    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot, amount, owner, spender, amount]
+    sstore                         // [owner, spender, amount]
+    swap2                          // [amount, spender, owner]
+    <free_mem_ptr> mstore          // [spender, amount]
+    __EVENT_HASH(Approval)         // [event_sig, spender, amount]
+    0x20 <free_mem_ptr>            // [free_mem_ptr, 0x20, event_sig, spender, amount]
+    log3                           // []
+}
+
+// stack: [owner, spender, amount]
+#define macro SPEND_ALLOWANCE(free_mem_ptr) = takes(3) returns(0) {
+    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot, amount]
+    swap1            // [amount, owner_spender_allowance_slot]
+    dup2 sload       // [allowance, amount, owner_spender_allowance_slot]
+    SAFE_SUB() swap1 // [owner_spender_allowance_slot, newAllowance]
+    sstore           // []
+}
+
+// Entry points
+
+// calldata: (address owner, address spender)
+#define macro ALLOWANCE_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x44 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x24 calldataload                // [spender]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [spender]
+    0x04 calldataload                // [owner, spender]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [owner, spender]
+
+    ALLOWANCE(0x00) // [allowance]
+    0x00 mstore 0x20 0x00 return
+
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address spender, uint256 amount)
+#define macro APPROVE_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x44 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x24 calldataload                // [amount]
+    0x04 calldataload                // [spender, amount]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [spender, amount]
+    caller                           // [owner, spender, amount]
+    
+    SET_ALLOWANCE(0x00) // []
+
+    0x01 0x00 mstore 0x20 0x00 return
+
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address account)
+#define macro BALANCE_OF_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x24 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x04 calldataload                // [account]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [account]
+
+    BALANCE_OF(0x00)                 // [balance]
+    0x00 mstore 0x20 0x00 return
+
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address to, uint256 amount)
+#define macro TRANSFER_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x44 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x04 calldataload caller         // [from, to]
+    dup2 REVERT_IF_ADDRESS_INVALID() // [from, to]
+    0x24 calldataload                // [amount, from, to]
+
+    TRANSFER(0x00)                   // []
+
+    0x01 0x00 mstore 0x20 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address from, address to, uint256 amount)
+#define macro TRANSFER_FROM_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x64 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x24 calldataload                // [to]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [to]
+    0x04 calldataload                // [from, to]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [from, to]
+    0x44 calldataload dup1           // [amount, amount, from, to]
+    caller dup4                      // [from, spender, amount, amount, from, to]
+
+    SPEND_ALLOWANCE(0x00)            // [amount, from, to]
+    TRANSFER(0x00)                   // []
+
+    0x01 0x00 mstore 0x20 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address from, address to, uint256 amount)
+#define macro DECIMALS_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x04 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x12 0x00 mstore 0x20 0x00 return
+
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address account, uint256 amount)
+#define macro MINT() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x44 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x04 calldataload                // [account]
+    dup1 REVERT_IF_ADDRESS_INVALID() // [account]
+
+    0x24 calldataload                // [amount, account]
+
+    dup1 [TOTAL_SUPPLY] sload          // [total_supply, amount, amount, account]
+    SAFE_ADD()                       // [new_total_supply, amount, account]
+    [TOTAL_SUPPLY] sstore            // [amount, account]
+    ADD_BALANCE(0x00)
+    0x00 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address account, uint256 amount)
+#define macro TOTAL_SUPPLY_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x04 calldatasize eq iszero exit jumpi
+
+    // main code
+    [TOTAL_SUPPLY] sload // [totalSupply]
+    0x00 mstore 0x20 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+#define macro NAME_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x04 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x20 0x00 mstore
+    [NAME_LEN] 0x20 mstore
+    [NAME] 0x40 mstore
+
+    0x60 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+#define macro SYMBOL_WRAPPER() = takes(0) returns(0) {
+    // checks
+    0x00 callvalue gt exit jumpi
+    0x04 calldatasize eq iszero exit jumpi
+
+    // main code
+    0x20 0x00 mstore
+    [SYMBOL_LEN] 0x20 mstore
+    [SYMBOL] 0x40 mstore
+
+    0x60 0x00 return
+    exit:
+        0x00 0x00 revert
+}
+
+#define macro MAIN() = takes(0) returns(0) {
+    0x00 calldataload 0xe0 shr  // [function_selector]
+
+    dup1 __FUNC_SIG(transferFrom) eq transferFrom jumpi
+    dup1 __FUNC_SIG(approve) eq approve jumpi
+    dup1 __FUNC_SIG(transfer) eq transfer jumpi
+    dup1 __FUNC_SIG(balanceOf) eq balanceOf jumpi
+    dup1 __FUNC_SIG(allowance) eq allowance jumpi
+    dup1 __FUNC_SIG(decimals) eq decimals jumpi
+    dup1 __FUNC_SIG(totalSupply) eq totalSupply jumpi
+    dup1 __FUNC_SIG(mint) eq mint jumpi
+    dup1 __FUNC_SIG(name) eq name jumpi
+    __FUNC_SIG(symbol) eq symbol jumpi
+
+    0x00 0x00 revert
+
+    balanceOf:
+        BALANCE_OF_WRAPPER()
+    mint:
+        MINT()
+    transfer:
+        TRANSFER_WRAPPER()
+    allowance:
+        ALLOWANCE_WRAPPER()
+    approve:
+        APPROVE_WRAPPER()
+    transferFrom:
+        TRANSFER_FROM_WRAPPER()
+    decimals:
+        DECIMALS_WRAPPER()
+    totalSupply:
+        TOTAL_SUPPLY_WRAPPER()
+    name:
+        NAME_WRAPPER()
+    symbol:
+        SYMBOL_WRAPPER()
+}

@@ -1,0 +1,10 @@
+#define constant FIRST_INVALID_ADDRESS = 0x0000000000000000000000010000000000000000000000000000000000000000
+
+#define macro REVERT_IF_ADDRESS_INVALID() = takes(1) returns(0) {
+    // [address]
+    [FIRST_INVALID_ADDRESS] // [FIRST_INVALID_ADDRESS, address]
+    gt end jumpi
+    0x00 0x00 revert
+
+    end:
+}

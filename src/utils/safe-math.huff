@@ -1,0 +1,29 @@
+// Constants
+
+#define constant MAX = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+// Functions
+
+// stack: [num1, num2]
+#define macro SAFE_ADD() = takes(2) returns(1) {
+    dup2 [MAX] sub // [MAX - num2, num1, num2]
+    dup2 // [num1, MAX - num2, num1, num2]
+    gt panic jumpi // [num1, num2]
+
+    add // [sum]
+    end jump
+
+    panic:
+        0x00 0x00 revert
+    end:
+}
+
+// stack: [num1, num2]
+#define macro SAFE_SUB() = takes(2) returns(1) {
+
+    dup2 dup2 // [num1, num2, num1, num2]
+    lt iszero end jumpi // [num1, num2]
+
+    0x00 0x00 revert
+    end: sub // [difference]
+}

@@ -1,0 +1,19 @@
+// stack: [slot, key]
+#define macro GET_MAPPING_SLOT(free_mem_ptr) = takes(2) returns(1) {
+    <free_mem_ptr> mstore          // [key]
+    <free_mem_ptr> 0x20 add mstore // []
+
+    0x40 <free_mem_ptr> sha3       // [mapping_slot]
+}
+
+// stack: [slot, key]
+#define macro GET_MAPPING_VALUE(free_mem_ptr) = takes(2) returns(1) {
+    GET_MAPPING_SLOT(<free_mem_ptr>) // [mapping_slot]
+    sload // [value]
+}
+
+// stack: [slot, key, value]
+#define macro SET_MAPPING_VALUE(free_mem_ptr) = takes(3) returns(0) {
+    GET_MAPPING_SLOT(<free_mem_ptr>) // [mapping_slot, value]
+    sstore
+}
