@@ -70,32 +70,32 @@
 }
 
 // stack: [owner, spender]
-#define macro ALLOWANCE_SLOT(free_mem_ptr) = takes(2) returns(1) {
-    [ALLOWANCE_MAPPING] GET_MAPPING_SLOT(<free_mem_ptr>) // [owner_allowance_slot, spender]
-    GET_MAPPING_SLOT(<free_mem_ptr>)                     // [owner_spender_allowance_slot]
+#define macro ALLOWANCE_SLOT() = takes(2) returns(1) {
+    [ALLOWANCE_MAPPING] GET_MAPPING_SLOT() // [owner_allowance_slot, spender]
+    GET_MAPPING_SLOT()                     // [owner_spender_allowance_slot]
 }
 
 // stack: [owner, spender]
-#define macro ALLOWANCE(free_mem_ptr) = takes(2) returns(1) {
-    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot]
+#define macro ALLOWANCE() = takes(2) returns(1) {
+    ALLOWANCE_SLOT() // [owner_spender_allowance_slot]
     sload            // [allowance]
 }
 
 // stack: [owner, spender, amount]
-#define macro SET_ALLOWANCE(free_mem_ptr) = takes(3) returns(0) {
+#define macro SET_ALLOWANCE() = takes(3) returns(0) {
     dup3 dup3 dup3                 // [owner, spender, amount, owner, spender, amount]
-    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot, amount, owner, spender, amount]
+    ALLOWANCE_SLOT()               // [owner_spender_allowance_slot, amount, owner, spender, amount]
     sstore                         // [owner, spender, amount]
     swap2                          // [amount, spender, owner]
-    <free_mem_ptr> mstore          // [spender, amount]
+    0x00 mstore                    // [spender, amount]
     __EVENT_HASH(Approval)         // [event_sig, spender, amount]
-    0x20 <free_mem_ptr>            // [0x20, event_sig, spender, amount]
+    0x20 0x00                      // [0x00, 0x20, event_sig, spender, amount]
     log3                           // []
 }
 
 // stack: [owner, spender, amount]
-#define macro SPEND_ALLOWANCE(free_mem_ptr) = takes(3) returns(0) {
-    ALLOWANCE_SLOT(<free_mem_ptr>) // [owner_spender_allowance_slot, amount]
+#define macro SPEND_ALLOWANCE() = takes(3) returns(0) {
+    ALLOWANCE_SLOT() // [owner_spender_allowance_slot, amount]
     swap1            // [amount, owner_spender_allowance_slot]
     dup2 sload       // [allowance, amount, owner_spender_allowance_slot]
     SAFE_SUB() swap1 // [owner_spender_allowance_slot, newAllowance]

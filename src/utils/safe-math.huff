@@ -20,10 +20,10 @@
 
 // stack: [num1, num2]
 #define macro SAFE_SUB() = takes(2) returns(1) {
-
     dup2 dup2 // [num1, num2, num1, num2]
     lt iszero end jumpi // [num1, num2]
 
     0x00 0x00 revert
+
     end: sub // [difference]
 }
