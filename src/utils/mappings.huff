@@ -1,3 +1,5 @@
+#include "./utils/safe-math.huff" // SAFE_ADD SAFE_SUB
+
 // stack: [slot, key]
 #define macro GET_MAPPING_SLOT() = takes(2) returns(1) {
     0x00 mstore               // [key]
@@ -16,4 +18,36 @@
 #define macro SET_MAPPING_VALUE() = takes(3) returns(0) {
     GET_MAPPING_SLOT() // [mapping_slot, value]
     sstore
+}
+
+// stack: [slot, key, inc_value]
+#define macro INC_MAPPING_VALUE() = takes(3) returns(0) {
+    GET_MAPPING_SLOT()      // [mapping_slot, inc_value]
+    swap1 dup2 sload        // [mapping_value, inc_value, mapping_slot]
+    add swap1               // [mapping_slot, new_value]
+    sstore                  // []
+}
+
+// stack: [slot, key, inc_value]
+#define macro SAFE_INC_MAPPING_VALUE() = takes(3) returns(0) {
+    GET_MAPPING_SLOT()      // [mapping_slot, inc_value]
+    swap1 dup2 sload        // [mapping_value, inc_value, mapping_slot]
+    SAFE_ADD() swap1        // [mapping_slot, new_value]
+    sstore                  // []
+}
+
+// stack: [slot, key, dec_value]
+#define macro DEC_MAPPING_VALUE() = takes(3) returns(0) {
+    GET_MAPPING_SLOT()      // [mapping_slot, dec_value]
+    swap1 dup2 sload        // [mapping_value, dec_value, mapping_slot]
+    sub swap1               // [mapping_slot, new_value]
+    sstore                  // []
+}
+
+// stack: [slot, key, dec_value]
+#define macro SAFE_DEC_MAPPING_VALUE() = takes(3) returns(0) {
+    GET_MAPPING_SLOT()      // [mapping_slot, dec_value]
+    swap1 dup2 sload        // [mapping_value, dec_value, mapping_slot]
+    SAFE_DEC() swap1        // [mapping_slot, new_value]
+    sstore                  // []
 }

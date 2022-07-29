@@ -1,0 +1,583 @@
+/* Imports */
+
+// SAFE_ADD SAFE_SUB
+#include "./utils/safe-math.huff"
+
+// REVERT_IF_ADDRESS_INVALID
+#include "./utils/address.huff"
+
+// GET_MAPPING_SLOT GET_MAPPING_VALUE SET_MAPPING_VALUE SAFE_INC_MAPPING_VALUE INC_MAPPING_VALUE SAFE_DEC_MAPPING_VALUE DEC_MAPPING_VALUE
+#include "./utils/mappings.huff"
+
+// NON_PAYABLE
+#include "./utils/payable.huff"
+
+// CALLDATA_SIZE CALLDATA_SIZE_MIN
+#include "./utils/calldata.huff"
+
+// UINT_TO_STRING_MEM
+#include "./utils/strings.huff"
+
+/* Interface Functions */
+
+#define function balanceOf(address) view returns(uint256)
+#define function ownerOf(uint256) view returns (address)
+
+#define function safeTransferFrom(address, address, uint256, bytes) nonpayable returns()
+#define function safeTransferFrom(address, address, uint256) nonpayable returns()
+#define function transferFrom(address, address, uint256) nonpayable returns()
+
+#define function approve(address, uint256) nonpayable returns()
+#define function setApprovalForAll(address, bool) nonpayable returns()
+#define function getApproved(uint256) view returns(address)
+#define function isApprovedForAll(address, address) view returns(bool)
+#define function mint(address, uint256) nonpayable returns()
+#define function totalSupply() view returns(uint256)
+#define function name() view returns(string)
+#define function symbol() view returns(string)
+#define function tokenURI(uint256) view returns(string)
+
+#define error SafeTransferToNonReceiver()
+#define error TransferToZeroAddress()
+#define error NonExistentToken()
+#define error NotAuthorized()
+#define error IncorrectFrom()
+#define error NoFallback()
+
+/* Interface events */
+
+#define event Transfer(address indexed, address indexed, uint256 indexed)
+#define event Approval(address indexed, address indexed, uint256 indexed)
+#define event ApprovalForAll(address indexed, address indexed, bool)
+
+/* Storage */
+
+#define constant TOTAL_SUPPLY = FREE_STORAGE_POINTER()
+#define constant OWNER_OF_MAPPING = FREE_STORAGE_POINTER()
+#define constant BALANCE_OF_MAPPING = FREE_STORAGE_POINTER()
+#define constant TOKEN_APPROVAL_MAPPING = FREE_STORAGE_POINTER()
+#define constant OPERATOR_APPROVAL_MAPPING = FREE_STORAGE_POINTER()
+
+#define constant name_length = 0x05
+#define constant name = 0x4d794e4654000000000000000000000000000000000000000000000000000000
+#define constant symbol_length = 0x03
+#define constant symbol = 0x4e46540000000000000000000000000000000000000000000000000000000000
+
+#define constant uri_length = 0x36
+#define constant uri_a = 0x697066733a2f2f516d65536a53696e4870506e6d586d73704d6a776958794e36
+#define constant uri_b = 0x7a533445397a63636172694752336a7863615774712f00000000000000000000
+
+/* Internal */
+
+// stack: [id]
+#define macro DOES_EXIST() = takes(1) returns(1) {
+    [TOTAL_SUPPLY] sload swap1 // [id, total_supply]
+    lt                         // [id < total_supply]
+}
+
+// stack: [id]
+#define macro MUST_EXIST() = takes(1) returns(0) {
+    DOES_EXIST() end jumpi
+
+    __ERROR(NonExistentToken)
+    0x00 mstore
+    0x04 0x00 revert
+
+    end:
+}
+
+// stack: [id]
+#define macro OWNER_OF() = takes(1) returns(1) {
+    start:                                           // [id]
+        dup1 [OWNER_OF_MAPPING] GET_MAPPING_VALUE()  // [possible_owner_of_id, id]
+        dup1 end jumpi                               // [possible_owner_of_id, id]
+        pop 0x01 swap1 sub                           // [id - 1]
+        start jump
+    end: // [owner_of_id, id]
+        swap1 pop // [owner_of_id]
+}
+
+// stack: [address]
+#define macro BALANCE_OF() = takes(1) returns(1) {
+    [BALANCE_OF_MAPPING] GET_MAPPING_VALUE()  // [balance]
+}
+
+// stack: [id]
+#define macro GET_TOKEN_APPROVAL_SLOT() = takes(1) returns(1) {
+    [TOKEN_APPROVAL_MAPPING] GET_MAPPING_SLOT()  // [id_approval_slot]
+}
+
+// stack: [id]
+#define macro GET_TOKEN_APPROVAL() = takes(1) returns(1) {
+    GET_TOKEN_APPROVAL_SLOT() // [id_approval_slot]
+    sload                     // [id_approval]
+}
+
+// stack: [owner, operator]
+#define macro GET_OPERATOR_APPROVAL_SLOT() = takes(2) returns(1) {
+    [OPERATOR_APPROVAL_MAPPING] GET_MAPPING_SLOT()  // [owner_approvals_slot, operator]
+    GET_MAPPING_SLOT()                              // [owner_operator_approval_slot]
+}
+
+// stack: [owner, operator]
+#define macro GET_OPERATOR_APPROVAL() = takes(2) returns(1) {
+    GET_OPERATOR_APPROVAL_SLOT()  // [owner_operator_approval_slot]
+    sload                         // [owner_operator_approval]
+}
+
+// stack: [id, to]
+#define macro MINT_ID() = takes(2) returns(0) {
+    [OWNER_OF_MAPPING] GET_MAPPING_SLOT()   // [owner_of_id_slot, to]
+    sstore                                  // []
+}
+
+// stack: [id, from]
+#define macro CLEAR_TOKEN_APPROVAL() = takes(2) returns(0) {
+    dup1 GET_TOKEN_APPROVAL_SLOT()  // [id_approval_slot, id, from]
+    0x00 swap1 sstore               // [id, from]
+    swap1 0x00 swap1                // [from, 0x00, id]
+    __EVENT_HASH(Approval)          // [sig, from, 0x00, id]
+    0x00 0x00 log4                  // []
+
+}
+
+// Required due to the ERC721A minting style (minting 3 tokens only sets the first one as owned in storage)
+// stack: [id]
+#define macro SET_ID_OWNER() = takes(1) returns(0) {
+    dup1 [OWNER_OF_MAPPING] sload  // [current_owner, id]
+    // if current owner is non zero
+    // jump to end
+    end jumpi                      // [id]
+    dup1 OWNER_OF()                // [owner, id]
+    swap1 [OWNER_OF_MAPPING]       // [owner_of_mapping, id, owner]
+    SET_MAPPING_VALUE()            // []
+    end:
+}
+
+// stack: [from, operator, id]
+#define macro CHECK_FOR_TRANSFER_APPROVAL() = takes(3) returns(0) {
+    // is operator the owner
+    dup2 swap1                      // [from, operator, operator, id]
+    dup2 dup2                       // [from, operator, from, operator, operator, id]
+    eq end_owner jumpi              // [is_owner, from, operator, operator, id]
+
+    // is operator operator approved
+    GET_OPERATOR_APPROVAL()         // [is_operator_approved, operator, id]
+    end_operator jumpi              // [operator, id]
+    // is operator token approved
+    swap1 GET_TOKEN_APPROVAL()      // [token_approved_to, operator]
+    eq end jumpi
+
+    // otherwise revert
+    __ERROR(NotAuthorized)
+    0x00 mstore
+    0x04 0x00 revert
+
+    end_owner:                      // [is_owner, from, operator, operator, id]
+        pop pop pop // pop pop
+        // end jump
+    end_operator:                   // [operator, id]
+        pop pop
+        // end jump
+    end:
+}
+
+// stack: [from, to, id]
+#define macro TRANSFER_FROM() = takes(3) returns(0) {
+    // throw if `from` is not current owner
+    dup1 dup4 OWNER_OF() eq iszero
+    transfer_from_incorrect_from jumpi
+    // thorw if `to` is address(0)
+    dup2 iszero
+    transfer_from_transfer_to_zero jumpi
+
+    // duplicate all variables to emit event later
+    dup3 dup3 dup3               // [from, to, id, from, to, id]
+
+    // exit if caller is not owner, operator approved, or token approved
+    dup3 caller dup3              // [from, operator, id, from, to, id, from, to, id]
+    CHECK_FOR_TRANSFER_APPROVAL() // [from, to, id, from, to, id]
+
+    
+    // explicity set owner of id + 1 if it exists
+    dup3 0x01 add dup1             // [id+1, id+1, from, to, id, from, to, id]
+    DOES_EXIST()                   // [id+1_exists, id+1, from, to, id, from, to, id]
+    iszero transfer_from_if jumpi  // [id+1, from, to, id, from, to, id]
+    SET_ID_OWNER()                 // [from, to, id, from, to, id]
+
+    transfer_from_if: pop          // [from, to, id, from, to, id]
+
+    // decrement `from`s balance
+    0x01 swap1                     // [from, 0x01, to, id, from, to, id]
+    [BALANCE_OF_MAPPING]           // [balance_of_mapping, from, 0x01, to, id, from, to, id]
+    DEC_MAPPING_VALUE()            // [to, id, from, to, id]
+
+    // increment `from`s balance
+    dup1 0x01 swap1                // [to, 0x01, to, id, from, to, id]
+    [BALANCE_OF_MAPPING]           // [balance_of_mapping, to, 0x01, to, id, from, to, id]
+    INC_MAPPING_VALUE()            // [to, id, from, to, id]
+    
+    swap1 [OWNER_OF_MAPPING]       // [owner_of_mapping, id, to, from, to, id]
+    SET_MAPPING_VALUE()            // [from, to, id]
+
+    dup1 dup4                      // [id, from, from, to, id]
+    CLEAR_TOKEN_APPROVAL()         // [from, to, id]
+
+    __EVENT_HASH(Transfer)         // [sig, from, to, id]
+    0x00 0x00                      // [0x00, 0x00, sig, from, to, id]
+    log4                           // []
+
+    end jump
+
+    transfer_from_incorrect_from:
+        __ERROR(IncorrectFrom)
+        0x00 mstore
+        0x04 0x00 revert
+    transfer_from_transfer_to_zero:
+        __ERROR(TransferToZeroAddress)
+        0x00 mstore
+        0x04 0x00 revert
+    end:
+}
+
+/* Entry points */
+
+// calldata: (uint256 id)
+#define macro ENTRY_OWNER_OF() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x24)
+
+    0x04 calldataload  // [id]
+    dup1 MUST_EXIST()  // [id]
+    OWNER_OF()         // [owner_of_id]
+    0x00 mstore        // []
+    0x20 0x00 return
+}
+
+// calldata: (address owner)
+#define macro ENTRY_BALANCE_OF() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x24)
+
+    0x04 calldataload                 // [address]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [address]
+    BALANCE_OF()                      // [balance]
+    0x00 mstore                       // []
+    0x20 0x00 return
+}
+
+// calldata: (uint256 id)
+#define macro ENTRY_GET_APPROVED() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x24)
+
+    0x04 calldataload     // [id]
+    dup1 MUST_EXIST()     // [id]
+    GET_TOKEN_APPROVAL()  // [approved_of_id]
+    0x00 mstore           // []
+    0x20 0x00 return
+}
+
+// calldata: (address owner, address operator)
+#define macro ENTRY_IS_APPROVED_FOR_ALL() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x44)
+
+    0x24 calldataload                   // [operator]
+    0x04 calldataload                   // [owner, operator]
+    dup1 REVERT_IF_ADDRESS_INVALID()    // [owner, operator]
+    dup2 REVERT_IF_ADDRESS_INVALID()    // [owner, operator]
+    GET_OPERATOR_APPROVAL()             // [owner_operator_approval_slot]
+
+    0x00 mstore
+    0x20 0x00 return
+}
+
+// calldata: (address operator, bool approved)
+#define macro ENTRY_SET_APPROVAL_FOR_ALL() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x44)
+
+    0x24 calldataload                       // [approved]
+    0x04 calldataload                       // [operator, approved]
+
+    dup1 REVERT_IF_ADDRESS_INVALID()        // [operator, approved]
+    caller                                  // [owner, operator, approved]
+    dup3 dup3 dup3                          // [owner, operator, approved, owner, operator, approved]
+
+    GET_OPERATOR_APPROVAL_SLOT()            // [owner_operator_approval_slot, approved, owner, operator, approval]
+    sstore                                  // [owner, operator, approval]
+    __EVENT_HASH(ApprovalForAll) 0x00 0x00  // [0x00, 0x00, sig, owner, operator, approval]
+    log4                                    // []
+
+    0x00 0x00 return
+}
+
+// calldata: (address operator, uint256 id)
+#define macro ENTRY_APPROVE() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x44)
+
+    0x24 calldataload                 // [id]
+    dup1 MUST_EXIST()                 // [id]
+    dup1 OWNER_OF()                   // [owner_of_id, id]
+    swap1 caller dup3                 // [owner_of_id, caller, id, owner_of_id]
+    dup2 dup2 GET_OPERATOR_APPROVAL() // [is_caller_approved, owner_of_id, caller, id, owner_of_id]
+    swap2                             // [caller, owner_of_id, is_caller_approved, id, owner_of_id]
+    eq or iszero                      // [is_not_approved_or_owner, id, owner_of_id]
+    is_not_approved_or_owner jumpi                        // [id, owner_of_id]
+
+    dup1 GET_TOKEN_APPROVAL_SLOT()    // [id_approval_slot, id, owner_of_id]
+    0x04 calldataload                 // [operator, id_approval_slot, id, owner_of_id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [operator, id_approval_slot, id, owner_of_id]
+    dup1                              // [operator, operator, id_approval_slot, id, owner_of_id]
+    swap2 sstore                      // [operator, id, owner_of_id]
+    swap1 swap2                       // [owner_of_id, operator, id]
+    __EVENT_HASH(Approval) 0x00 0x00  // [0x00, 0x00, sig, owner, operator, id]
+    log4                              // []
+
+    __ERROR(NoFallback)
+    0x00 mstore
+    0x04 0x00 return
+
+    is_not_approved_or_owner:
+        __ERROR(NotAuthorized)
+        0x00 mstore
+        0x04 0x00 revert
+}
+
+#define macro ENTRY_TOTAL_SUPPLY() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x04)
+
+    [TOTAL_SUPPLY] sload // [total_supply]
+    0x00 mstore          // []
+    0x20 0x00 return
+}
+
+// calldata: (address to, uint256 amount)
+#define macro ENTRY_MINT() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x44)
+
+    0x24 calldataload                  // [amount]
+    0x04 calldataload                  // [to, amount]
+    dup1 REVERT_IF_ADDRESS_INVALID()   // [to, amount]
+    dup2 iszero exit jumpi             // [to, amount]
+
+    // increment total_supply
+    [TOTAL_SUPPLY] sload               // [first_id, to, amount]
+    dup3 dup2 SAFE_ADD()               // [total_supply_new, first_id, to, amount]
+    [TOTAL_SUPPLY] sstore              // [first_id, to, amount]
+
+    // mint the first id
+    dup2 dup2 MINT_ID()                // [first_id, to, amount]
+
+    // increment balance
+    dup3 dup3 [BALANCE_OF_MAPPING]     // [balance_of_mapping, to, amount, first_id, to, amount]
+    SAFE_INC_MAPPING_VALUE()           // [first_id, to, amount]
+
+    swap2 dup3                         // [first_id, amount, to, first_id]
+    add                                // [end_id, to, first_id]
+    swap2 swap1 swap2                  // [end_id, first_id, to]
+
+    // first_id == index, end_id == end_index
+    mint_event_loop_start:             // [end_index, index, to]
+        dup2                           // [index, end_index, index, to]
+        dup4                           // [to, index, end_index, index, to]
+        0x00                           // [from, to, index, end_index, index, to]
+        __EVENT_HASH(Transfer)         // [sig, from, to, index, end_index, index, to]
+        0x00 0x00                      // [0x00, 0x00, sig, from, to, index, end_index, index, to]
+        log4                           // [end_index, index, to]
+        swap1 0x01 add swap1           // [end_index, ++index, to]
+        dup1 dup3                      // [++index, end_index, end_index, ++index, to]
+        lt mint_event_loop_start jumpi // [end_index, ++index, to]
+    
+    0x00 0x00 return
+
+    exit:
+        0x00 0x00 revert
+}
+
+// calldata: (address from, address to, uint256 id)
+#define macro ENTRY_TRANSFER_FROM() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x64)
+
+    0x44 calldataload                 // [id]
+    dup1 MUST_EXIST()                 // [id]
+    0x24 calldataload                 // [to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [to, id]
+    0x04 calldataload                 // [from, to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [from, to, id]
+
+    TRANSFER_FROM()                   // []
+
+    0x00 0x00 return
+}
+
+// calldata: (address from, address to, uint256 id, bytes data)
+#define macro ENTRY_SAFE_TRANSFER_FROM_WITH_BYTES() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE_MIN(0x84)
+
+    0x44 calldataload                 // [id]
+    dup1 MUST_EXIST()                 // [id]
+    0x24 calldataload                 // [to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [to, id]
+    0x04 calldataload                 // [from, to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [from, to, id]
+
+    TRANSFER_FROM()                   // []
+
+    0x24 calldataload extcodesize iszero end jumpi
+
+    // sig
+    __FUNC_SIG("onERC721Received(address,address,uint256,bytes)") 0xE0 shl dup1 0x00 mstore  // [sig]
+    // sig + operator
+    caller 0x04 mstore                                                                       // [sig]
+    // sig + operator + from
+    0x04 calldataload 0x24 mstore                                                            // [sig]
+    // sig + operator + from + id
+    0x44 calldataload 0x44 mstore                                                            // [sig]
+    // sig + operator + from + id + data
+    0x64 calldataload 0x04 add calldataload 0x40 add                      // [data_len, sig]
+    0x64 0x64 calldatacopy                                                // [sig]
+
+    0x00 0x00 0xa4 0x64 calldataload add 0x00 0x00 0x24 calldataload gas  // [gas, to, 0x00, 0x00, size, 0x00, 0x00, sig]
+    call iszero                                                           // [fail_condition, sig]
+    returndatasize 0x20 eq iszero or                                      // [fail_condition, sig]
+    exit jumpi                                                            // [sig]
+    0x20 0x00 0x00 returndatacopy                                         // [sig]
+    0x00 mload eq iszero                                                  // [fail_condition]
+    exit jumpi
+
+    0x00 0x00 return
+    exit:
+        __ERROR(SafeTransferToNonReceiver)
+        0x00 mstore
+        0x04 0x00 revert
+    end:
+}
+
+// calldata: (address from, address to, uint256 id)
+#define macro ENTRY_SAFE_TRANSFER_FROM() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x64)
+
+    0x44 calldataload                 // [id]
+    dup1 MUST_EXIST()                 // [id]
+    0x24 calldataload                 // [to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [to, id]
+    0x04 calldataload                 // [from, to, id]
+    dup1 REVERT_IF_ADDRESS_INVALID()  // [from, to, id]
+
+    TRANSFER_FROM()                   // []
+
+    0x24 calldataload extcodesize iszero end jumpi
+
+    // sig
+    __FUNC_SIG("onERC721Received(address,address,uint256,bytes)") 0xE0 shl dup1 0x00 mstore  // [sig]
+    // sig + operator
+    caller 0x04 mstore                                                              // [sig]
+    // sig + operator + from
+    0x04 calldataload 0x24 mstore                                                   // [sig]
+    // sig + operator + from + id
+    0x44 calldataload 0x44 mstore                                                   // [sig]
+    // sig + operator + from + id + bytes_offset
+    0x80 0x64 mstore
+    // sig + operator + from + id + bytes_offset + bytes_length
+    0x00 0x84 mstore
+
+    0x00 0x00 0xE4 0x00 0x00 0x24 calldataload gas  // [gas, to, 0x00, 0x00, 0xa0, 0x00, 0x00, sig]
+    call iszero                                             // [fail_condition, sig]
+    returndatasize 0x20 eq iszero or                        // [fail_condition, sig]
+    exit jumpi                                              // [sig]
+    0x20 0x00 0x00 returndatacopy                           // [sig]
+    0x00 mload eq iszero                                    // [fail_condition]
+    exit jumpi
+
+    0x00 0x00 return
+    exit:
+        __ERROR(SafeTransferToNonReceiver)
+        0x00 mstore
+        0x04 0x00 revert
+    end:
+    0x00 0x00 return
+}
+
+#define macro ENTRY_NAME() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x04)
+    0x20 0x00 mstore
+    [name_length] 0x20 mstore
+    [name] 0x40 mstore
+    0x60 0x00 return
+}
+
+#define macro ENTRY_SYMBOL() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x04)
+    0x20 0x00 mstore
+    [symbol_length] 0x20 mstore
+    [symbol] 0x40 mstore
+    0x60 0x00 return
+}
+
+// WARNING: does not work if the length of the decimal representation of id is > 10 characters
+// calldata: (uint256 id)
+#define macro ENTRY_TOKEN_URI() = takes(0) returns(0) {
+    NON_PAYABLE() CALLDATA_SIZE(0x24)
+    0x04 calldataload
+    dup1 MUST_EXIST()                                                  // [id]
+    UINT_TO_STRING_MEM(0x00)                                           // []
+    0x00 mload                                                         // [id_str_len]
+    0x20 mload                                                         // [id_str, id_str_len]
+    0x20 0x00 mstore                                                   // [id_str, id_str_len]
+    swap1                                                              // [id_str_len, id_str]
+    [uri_length] add
+    0x20 mstore                            // [id_str]
+    [uri_a] 0x40 mstore                    // [id_str]
+    [uri_b] 0x60 mstore                    // [id_str]
+    0x20 [uri_length] mod 0x60 add mstore  // []
+    0x20 mload 0x60 add 0x00 return
+}
+
+/* Main */
+
+#define macro MAIN() = takes(0) returns(0) {
+    0x00 calldataload 0xe0 shr  // [function_selector]
+
+    dup1 __FUNC_SIG(transferFrom) eq transferFrom jumpi
+    dup1 __FUNC_SIG("safeTransferFrom(address,address,uint256,bytes)") eq safeTransferFromWithBytes jumpi
+    dup1 __FUNC_SIG("safeTransferFrom(address,address,uint256)") eq safeTransferFrom jumpi
+    dup1 __FUNC_SIG(ownerOf) eq ownerOf jumpi
+    dup1 __FUNC_SIG(balanceOf) eq balanceOf jumpi
+    dup1 __FUNC_SIG(setApprovalForAll) eq setApprovalForAll jumpi
+    dup1 __FUNC_SIG(totalSupply) eq totalSupply jumpi
+    dup1 __FUNC_SIG(isApprovedForAll) eq isApprovedForAll jumpi
+    dup1 __FUNC_SIG(approve) eq approve jumpi
+    dup1 __FUNC_SIG(mint) eq mint jumpi
+    dup1 __FUNC_SIG(getApproved) eq getApproved jumpi
+    dup1 __FUNC_SIG(name) eq name jumpi
+    dup1 __FUNC_SIG(symbol) eq symbol jumpi
+    __FUNC_SIG(tokenURI) eq tokenURI jumpi
+
+    0x00 0x00 revert
+
+    transferFrom:
+        ENTRY_TRANSFER_FROM()
+    ownerOf:
+        ENTRY_OWNER_OF()
+    balanceOf:
+        ENTRY_BALANCE_OF()
+    setApprovalForAll:
+        ENTRY_SET_APPROVAL_FOR_ALL()
+    totalSupply:
+        ENTRY_TOTAL_SUPPLY()
+    isApprovedForAll:
+        ENTRY_IS_APPROVED_FOR_ALL()
+    approve:
+        ENTRY_APPROVE()
+    mint:
+        ENTRY_MINT()
+    getApproved:
+        ENTRY_GET_APPROVED()
+    safeTransferFromWithBytes:
+        ENTRY_SAFE_TRANSFER_FROM_WITH_BYTES()
+    safeTransferFrom:
+        ENTRY_SAFE_TRANSFER_FROM()
+    name:
+        ENTRY_NAME()
+    symbol:
+        ENTRY_SYMBOL()
+    tokenURI:
+        ENTRY_TOKEN_URI()
+}

@@ -1,5 +1,7 @@
 // Constants
 
+#define error Overflow()
+#define error Underflow()
 #define constant MAX = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 // Functions
@@ -14,7 +16,9 @@
     end jump
 
     panic:
-        0x00 0x00 revert
+        __ERROR(Overflow)
+        0x00 mstore
+        0x04 0x00 revert
     end:
 }
 
@@ -23,7 +27,9 @@
     dup2 dup2 // [num1, num2, num1, num2]
     lt iszero end jumpi // [num1, num2]
 
-    0x00 0x00 revert
+    __ERROR(Underflow)
+    0x00 mstore
+    0x04 0x00 revert
 
     end: sub // [difference]
 }

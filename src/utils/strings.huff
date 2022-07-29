@@ -1,0 +1,42 @@
+#define constant NUM_0 = 0x30
+
+// stack: [number]
+#define macro UINT_TO_STRING_MEM(free_mem_ptr) = takes(1) returns(0) {
+    dup1 iszero is_zero jumpi  // [number]
+
+    0x00 dup2                  // [number, digits, number]
+    loop_1:                    // [number, digits, number]
+        swap1 0x01 add         // [++digits, number, number]
+        swap1 0x0a             // [0x0a, number, ++digits, number]
+        swap1 div              // [number / 0x0a, ++digits, number]
+        dup1 loop_1 jumpi      // [number, digits, number]
+    pop dup1 swap2             // [number, digits, digits]
+
+    dup2 <free_mem_ptr> mstore      // [number, digits, digits]
+    loop_2:                                  // [number, digits, digits]
+        swap1 0x01                           // [0x01, digits, number, digits]
+        swap1 sub dup2                       // [number, --digits, number, digits]
+        0x0a swap1 mod                       // [number % 0x0a, --digits, number, digits]
+        0x30 add                             // [(number % 0x0a) + 48, --digits, number, digits]
+        0xff and                             // [byte1((number % 0x0a) + 48), --digits, number, digits]
+        dup2                                 // [--digits, byte1((number % 0x0a) + 48), --digits, number, digits]
+        0x20 <free_mem_ptr> add add mstore8  // [digits, number, digits]
+        swap1 0x0a                           // [0x0a, number, digits, digits]
+        swap1 div                            // [number, digits, digits]
+        dup1 loop_2 jumpi                    // [number, digits, digits]
+
+    pop pop pop end jump
+
+    is_zero:
+        pop
+        0x01 <free_mem_ptr> mstore
+        [NUM_0] <free_mem_ptr> 0x20 add mstore8
+    end:
+}
+
+// #define macro MAIN() = takes(0) returns(0) {
+//     0x00 calldataload UINT_TO_STRING_MEM(0x00)
+//     // eq to (((length - 0x01) / 0x20) + 0x01) * 0x20 + 0x40
+//     0x01 0x20 0x01 0x20 mload sub div add 0x20 mul 0x40 add // [str_size]
+//     0x00 return
+// }

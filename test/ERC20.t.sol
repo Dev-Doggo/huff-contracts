@@ -19,6 +19,9 @@ interface ERC20 {
     event Approval(address indexed, address indexed, uint256);
 }
 
+bytes4 constant Underflow = 0xcaccb6d9;
+bytes4 constant Overflow = 0x35278d12;
+
 contract ContractTest is Test {
     uint256 constant MAX = type(uint256).max;
     ERC20 token;
@@ -80,21 +83,21 @@ contract ContractTest is Test {
         fund(user1, 500);
 
         vm.startPrank(user2);
-        vm.expectRevert();
+        vm.expectRevert(Underflow);
         token.transferFrom(user1, user2, 100);
         vm.stopPrank();
 
         vm.prank(user1); token.approve(user2, 100);
 
         vm.startPrank(user2);
-        vm.expectRevert();
+        vm.expectRevert(Underflow);
         token.transferFrom(user1, user2, 101);
         token.transferFrom(user1, user2, 50);
         assertEq(token.allowance(user1, user2), 50);
         assertEq(token.balanceOf(user1), 450);
         assertEq(token.balanceOf(user2), 50);
 
-        vm.expectRevert();
+        vm.expectRevert(Underflow);
         token.transferFrom(user1, user2, 51);
         token.transferFrom(user1, user2, 50);
         assertEq(token.allowance(user1, user2), 0);

@@ -1,0 +1,16 @@
+#define error InvalidSizeCalldata()
+
+#define macro CALLDATA_SIZE(size) = takes(0) returns(0) {
+    <size> calldatasize eq end jumpi
+    __ERROR(InvalidSizeCalldata)
+    0x00 mstore
+    0x04 0x00 revert
+    end:
+}
+#define macro CALLDATA_SIZE_MIN(size) = takes(0) returns(0) {
+    <size> calldatasize lt iszero end jumpi
+    __ERROR(InvalidSizeCalldata)
+    0x00 mstore
+    0x04 0x00 revert
+    end:
+}

@@ -1,0 +1,9 @@
+#define error NonPayable()
+
+#define macro NON_PAYABLE() = takes(0) returns(0) {
+    callvalue iszero end jumpi
+    __ERROR(NonPayable)
+    0x00 mstore
+    0x04 0x00 revert
+    end:
+}
