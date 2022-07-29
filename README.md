@@ -1,3 +1,3 @@
-# erc20-huff
+# huff-contracts
 
-ERC20 implementation written in huff from someone who doesn't really know huff
+ERC20 and ERC721 implementations written in huff from someone who doesn't really know huff
