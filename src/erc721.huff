@@ -340,6 +340,7 @@
         0x04 0x00 revert
 }
 
+// calldata : ()
 #define macro ENTRY_TOTAL_SUPPLY() = takes(0) returns(0) {
     NON_PAYABLE() CALLDATA_SIZE(0x04)
 
@@ -495,6 +496,7 @@
     0x00 0x00 return
 }
 
+// calldata : ()
 #define macro ENTRY_NAME() = takes(0) returns(0) {
     NON_PAYABLE() CALLDATA_SIZE(0x04)
     0x20 0x00 mstore
@@ -503,6 +505,7 @@
     0x60 0x00 return
 }
 
+// calldata : ()
 #define macro ENTRY_SYMBOL() = takes(0) returns(0) {
     NON_PAYABLE() CALLDATA_SIZE(0x04)
     0x20 0x00 mstore
