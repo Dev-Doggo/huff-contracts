@@ -2,9 +2,7 @@
 
 // stack: [slot, key]
 #define macro GET_MAPPING_SLOT() = takes(2) returns(1) {
-    dup1 0x00 0x00 log1
     0x20 mstore               // [key]
-    dup1 0x00 0x00 log1
     0x00 mstore               // []
 
     0x40 0x00 sha3  // [mapping_slot]
